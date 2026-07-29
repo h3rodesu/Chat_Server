@@ -33,7 +33,8 @@ public:
 		~SafeSocket() {
 			if (mysocket != INVALID_SOCKET) {
 		closesocket(mysocket);
-				std::cout << "Сокет автоматически удалён" << std::endl;
+		this->mysocket = INVALID_SOCKET;
+		std::cout << "Сокет автоматически удалён" << std::endl;
 			}
 }
 		//Геттер чтобы можно было вызывать необходимы функции

@@ -17,5 +17,7 @@ int main() {
 	}
 	myServer.start();//Запуск бесконечного цикла
 	system("Pause");
+	WSACleanup();
+	std::cout << "Сетевая бибилотека удалена из ОЗУ" << std::endl;
 	return 0;
 }
