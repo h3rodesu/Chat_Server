@@ -140,11 +140,13 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="ChatServer.h" />
+    <ClInclude Include="HttpRequest.h" />
     <ClInclude Include="SafeSocket.h" />
     <ClInclude Include="ThreadPool.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ChatServer.cpp" />
+    <ClCompile Include="HttpRequest.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="ThreadPool.cpp" />
   </ItemGroup>

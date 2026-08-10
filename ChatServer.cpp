@@ -1,4 +1,5 @@
 #include "ChatServer.h"
+#include "HttpRequest.h"
 #include<memory>	
 ChatServer::ChatServer(int s): myport(s),mysocket(INVALID_SOCKET),pool(4){}//4 потока
 bool ChatServer::init() {
@@ -59,22 +60,39 @@ void ChatServer::start() {//Работа с клиентом
 	}
 }
 void ChatServer::handlClient(std::shared_ptr<SafeSocket>mySocket) {//Фоновый поток для чтения через метод recv
-	while (true) {//Работает только когда есть клиентсокет,активное ожидание исключено
+	Pars parser;//Объект класса
+	//while (true) {//Работает только когда есть клиентсокет,активное ожидание исключено
 		char Rxbuffer[1024];
+		while(!parser.isComplete()){//Пока строки не закончатся
 		int recBytes = recv(mySocket->get(), Rxbuffer, sizeof(Rxbuffer) - 1, 0);//-1 под нуль терминатор,0 т.к. 0 флагов
 		if (recBytes > 0) {
 			Rxbuffer[recBytes] = '\0';//огранчение строки
 			std::cout << "Получены байты " << Rxbuffer<< std::endl;
+		//Здесь нужно передать прилетевшие данные в сам парсер
+			parser.parse(Rxbuffer, recBytes);
 		}
 		else if (recBytes == 0) {//Если ПРИНЯТО 0 байтов-клиент отключился
 			std::cout << "Клиент отключился " << std::endl;
-			break;
+			return;
 		}
 		else {
 			std::cerr << WSAGetLastError() << std::endl;
-			break;
+			return;
 		}
 	}
+		std::string html="<h1>Answer from Server</h1>";
+		std::string response =
+			"HTTP/1.1 200 OK\r\n"
+			"Connect-Type: text/html;charset=utf-8\r\n"
+			"Connect-Lenght:" + std::to_string(html.size()) + "\r\n"
+			"Connection:close\r\n"
+			"\r\n"
+			+ html;
+		send(mySocket->get(), response.c_str(), response.size(), 0);
+		std::cout << "The request has been parsed" << std::endl;
+		std::cout<<"Method " << parser.method << std::endl;
+		std::cout<<"Path " << parser.path << std::endl;
+		std::cout<<"Version " << parser.version << std::endl;
 }
 ChatServer::~ChatServer() {
 	std::cout << "[WINSOCK] Сетевая библиотека удалена " << std::endl;

@@ -9,7 +9,6 @@ int main() {
 	std::cout << "Enter your port" << std::endl;
 	std::cin >> port;
 	ChatServer myServer(port);
-	myServer.init();
 	if (!myServer.init()) {//Если возниклас ошибка с инициализицей
 		std::cerr << "Ошибка инициализации,не удалось запустить сервер" << std::endl;
 			system("Pause");
@@ -19,5 +18,6 @@ int main() {
 	system("Pause");
 	WSACleanup();
 	std::cout << "Сетевая бибилотека удалена из ОЗУ" << std::endl;
+	system("Pause");
 	return 0;
 }
