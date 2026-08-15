@@ -12,7 +12,6 @@ public:
 	SafeSocket(const SafeSocket&) = delete;//Запрет на создание объекта как копии
 	SafeSocket& operator=(const SafeSocket&) = delete;//Запрет на копирование данных из одного
 	//Объекта в другой
-
 	//Присваивание
 	SafeSocket(SafeSocket&& other)noexcept { 
 			mysocket = other.mysocket;

@@ -53,47 +53,123 @@ void ChatServer::start() {//Работа с клиентом
 		}
 		SafeSocket clientSocket(ptimeclientSocket);//Если ошибки выше нет то перенос сокета с дескриптором в объект класса SafeSocket чтобы работал принцип RAII
 		std::cout << "Клиент на сервере" << std::endl;
+		
+		//ВРЕМЕННО ЗАКОММЕНТИРОВАННО	
+		//auto unclientsocket = std::make_shared<SafeSocket>(std::move(clientSocket));//Закинули в указатель сам клиентский сокет
+		//this->handlClient(unclientsocket);//чтобы вручную без пула вызвать метод
+	 	
 		auto unclientsocket = std::make_shared<SafeSocket>(std::move(clientSocket));//function отказывался принимать лямбду с некопируемым сокетом так что пришлось идти на крайние меры
 		pool.add([this,unclientsocket=std::move(unclientsocket)]() mutable/*чтобы в лямбде не было const*/ noexcept{//Закинуть сокет клиента в очередь как задачу
-			this->handlClient(unclientsocket);//достали сокет из указателя через разименование
+			this->handlClient(std::move(unclientsocket));//достали сокет из указателя через разименование
 			});
+	
+	
+	
+	
+	}
+}
+void ChatServer::MessageBroadCast(const std::string& message, SOCKET sender) {
+	std::lock_guard<std::mutex>myLock(this->mtx);
+	for (const auto& read : this->Map) {
+		SOCKET clientsock = read.first;
+		if (clientsock == sender) {//чтобы не отправить сообщение отпрпаителю этого же сообщения
+			continue;
+		}
+		send(clientsock, message.c_str(), (int)message.size(), 0);
 	}
 }
 void ChatServer::handlClient(std::shared_ptr<SafeSocket>mySocket) {//Фоновый поток для чтения через метод recv
-	Pars parser;//Объект класса
-	//while (true) {//Работает только когда есть клиентсокет,активное ожидание исключено
-		char Rxbuffer[1024];
-		while(!parser.isComplete()){//Пока строки не закончатся
-		int recBytes = recv(mySocket->get(), Rxbuffer, sizeof(Rxbuffer) - 1, 0);//-1 под нуль терминатор,0 т.к. 0 флагов
-		if (recBytes > 0) {
-			Rxbuffer[recBytes] = '\0';//огранчение строки
-			std::cout << "Получены байты " << Rxbuffer<< std::endl;
-		//Здесь нужно передать прилетевшие данные в сам парсер
-			parser.parse(Rxbuffer, recBytes);
+	char rxBuffer[1024];
+	std::string Welcome = "Welcome!\n Enter your nickname: ";
+	send(mySocket->get(), Welcome.c_str(), (int)Welcome.size(), 0);
+
+	int recBytes = recv(mySocket->get(), rxBuffer, sizeof(rxBuffer) - 1, 0);//Тут инт т.к. здесь число прилетевших байт
+	if (recBytes <= 0) {
+		{
+			std::unique_lock<std::mutex>myLock(this->mtx);
+			Map.erase(mySocket->get());//Метод get() был написан спциально для того чтобы моно было вызывать методы сокета для указателей
+			//closesocket(mySocket->get());//ЗДЕСЬ ЭТО НЕ НУЖНО,ЕСТЬ ДЕСТРУКТОР
+			
 		}
-		else if (recBytes == 0) {//Если ПРИНЯТО 0 байтов-клиент отключился
-			std::cout << "Клиент отключился " << std::endl;
-			return;
-		}
-		else {
-			std::cerr << WSAGetLastError() << std::endl;
-			return;
-		}
+		std::cerr << "Nickname trouble" << std::endl;
+		return;//Выход если клиент отключился или байты не дошли
 	}
-		std::string html="<h1>Answer from Server</h1>";
-		std::string response =
-			"HTTP/1.1 200 OK\r\n"
-			"Connect-Type: text/html;charset=utf-8\r\n"
-			"Connect-Lenght:" + std::to_string(html.size()) + "\r\n"
-			"Connection:close\r\n"
-			"\r\n"
-			+ html;
-		send(mySocket->get(), response.c_str(), response.size(), 0);
-		std::cout << "The request has been parsed" << std::endl;
-		std::cout<<"Method " << parser.method << std::endl;
-		std::cout<<"Path " << parser.path << std::endl;
-		std::cout<<"Version " << parser.version << std::endl;
+	rxBuffer[recBytes] = '\0';	
+	std::string nick(rxBuffer);//Перевели буфер в обычную строку
+	if (!nick.empty() && nick.back() == '\n' || nick.back() == '\r') {
+		nick.pop_back();
+	}
+	if (nick.empty()) {
+		nick = "Default User" + std::to_string(mySocket->get());//Чтобы был дефолт юзер и номер его сокета например Defaut Socket 345 
+	}
+	{
+		std::lock_guard<std::mutex>myLock(this->mtx);
+		Map[mySocket->get()] = nick;
+	}
+	std::string SysMsg = "System: Greet User" + nick + " ,now he is in the chat! ";
+	this->MessageBroadCast(SysMsg, mySocket->get());
+	this->processClientMsg(mySocket, nick);
 }
+void ChatServer::processClientMsg(std::shared_ptr<SafeSocket>sock, std::string nick) {
+	char buf[1024];
+	Pars parser;
+	while (true) {
+	int rec=recv(sock->get(), buf, sizeof(buf) - 1, 0);
+	if (rec <=0) {
+		std::cerr<<"WARNING!" << WSAGetLastError() << std::endl;
+		std::cout << "User" << nick << "left" << std::endl;
+		std::unique_lock<std::mutex>myLock(this->mtx);
+		this->Map.erase(sock->get());//Удаление сокета из мапы чтобы вышедшему пользователю не отправялиоись сообщения
+		break;//Из бесконечного цикла
+	}
+	else {
+		buf[rec] = '\0';
+		std::cout<<nick<<": "<< buf << std::endl;
+	}
+	parser.clean();//Очстка строк
+	parser.parse(buf, (size_t)rec);//парсим прилетевшую информацию
+	if (parser.command == "MSG") {//если прилеетло сообщение
+		std::string UserMsg = "" + nick + "| " + parser.message + "\n";//Передаем то что распарсил парсер в строку с сообщением и делаем перенос строки
+		this->MessageBroadCast(UserMsg, sock->get());
+	}
+	}
+}
+//ПАРСЕР ОТСЮДА УБРАН !!!!!!!
+// 
+	//Pars parser;//Объект класса
+	////while (true) {//Работает только когда есть клиентсокет,активное ожидание исключено
+	//	char Rxbuffer[1024];
+	//	while(!parser.isComplete()){//Пока строки не закончатся
+	//	int recBytes = recv(mySocket->get(), Rxbuffer, sizeof(Rxbuffer) - 1, 0);//-1 под нуль терминатор,0 т.к. 0 флагов
+	//	if (recBytes > 0) {
+	//		Rxbuffer[recBytes] = '\0';//огранчение строки
+	//		std::cout << "Получены байты " << Rxbuffer<< std::endl;
+	//	//Здесь нужно передать прилетевшие данные в сам парсер
+	//		parser.parse(Rxbuffer, recBytes);
+	//	}
+	//	else if (recBytes == 0) {//Если ПРИНЯТО 0 байтов-клиент отключился
+	//		std::cout << "Клиент отключился " << std::endl;
+	//		return;
+	//	}
+	//	else {
+	//		std::cerr << WSAGetLastError() << std::endl;
+	//		return;
+	//	}
+	//}
+	//	std::string html="<h1>Answer from Server</h1>";
+	//	std::string response =
+	//		"HTTP/1.1 200 OK\r\n"
+	//		"Connect-Type: text/html;charset=utf-8\r\n"
+	//		"Connect-Lenght:" + std::to_string(html.size()) + "\r\n"
+	//		"Connection:close\r\n"
+	//		"\r\n"
+	//		+ html;
+	//	send(mySocket->get(), response.c_str(), response.size(), 0);//Тут отправялется ответ от сервера к клиенту (html страница отправялется)
+	//	std::cout << "The request has been parsed" << std::endl;
+	//	std::cout<<"Method " << parser.method << std::endl;
+	//	std::cout<<"Path " << parser.path << std::endl;
+	//	std::cout<<"Version " << parser.version << std::endl;
+//}
 ChatServer::~ChatServer() {
 	std::cout << "[WINSOCK] Сетевая библиотека удалена " << std::endl;
 }
