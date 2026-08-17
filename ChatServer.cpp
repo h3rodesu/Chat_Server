@@ -78,9 +78,12 @@ void ChatServer::MessageBroadCast(const std::string& message, SOCKET sender) {
 		send(clientsock, message.c_str(), (int)message.size(), 0);
 	}
 }
+
 void ChatServer::handlClient(std::shared_ptr<SafeSocket>mySocket) {//Фоновый поток для чтения через метод recv
 	char rxBuffer[1024];
 	std::string Welcome = "Welcome!\n Enter your nickname: ";
+	int flag = 1;
+	setsockopt(mySocket->get(), IPPROTO_TCP, TCP_NODELAY, (const char*)&flag, sizeof(flag));//изза малого объёма строки без флага TCP_NODELAY она не отправлялась первому клиенту
 	send(mySocket->get(), Welcome.c_str(), (int)Welcome.size(), 0);
 
 	int recBytes = recv(mySocket->get(), rxBuffer, sizeof(rxBuffer) - 1, 0);//Тут инт т.к. здесь число прилетевших байт
@@ -102,11 +105,16 @@ void ChatServer::handlClient(std::shared_ptr<SafeSocket>mySocket) {//Фонов�
 	if (nick.empty()) {
 		nick = "Default User" + std::to_string(mySocket->get());//Чтобы был дефолт юзер и номер его сокета например Defaut Socket 345 
 	}
+	else {
+		std::string added = "Welcome,dear " + nick + ", You can start chatting right now!";
+		send(mySocket->get(), added.c_str(), (int)added.size(), 0);
+	}
 	{
 		std::lock_guard<std::mutex>myLock(this->mtx);
 		Map[mySocket->get()] = nick;
 	}
-	std::string SysMsg = "System: Greet User" + nick + " ,now he is in the chat! ";
+	
+	std::string SysMsg = "System: Greet User " + nick + "  ,now he is in the chat! ";
 	this->MessageBroadCast(SysMsg, mySocket->get());
 	this->processClientMsg(mySocket, nick);
 }
@@ -132,44 +140,31 @@ void ChatServer::processClientMsg(std::shared_ptr<SafeSocket>sock, std::string n
 		std::string UserMsg = "" + nick + "| " + parser.message + "\n";//Передаем то что распарсил парсер в строку с сообщением и делаем перенос строки
 		this->MessageBroadCast(UserMsg, sock->get());
 	}
+	else if (parser.command == "QUIT") {
+		std::string quitmes=""+nick+" leave from chat, bye-bye!";
+		this->MessageBroadCast(quitmes, sock->get());
+		{
+			std::unique_lock<std::mutex>myLock(this->mtx);
+			this->Map.erase(sock->get());
+		}
+		break;
+	}
+	else if (parser.command == "CHANGE_NICK") {//а сам ник после | распарсится как сообщение
+		std::string newNick = parser.message;
+		if (!newNick.empty()) {
+			std::string oldNick = nick;
+			{
+				std::unique_lock<std::mutex>myLock(this->mtx);
+				this->Map[sock->get()] = newNick;//так и так изменения нужно занести в мапу
+			}
+			nick = newNick;
+			std::string nickmsg = "System: User " + oldNick + " change nickName to " + newNick + "\n";
+			this->MessageBroadCast(nickmsg, sock->get());
+		}
+	}
+	
 	}
 }
-//ПАРСЕР ОТСЮДА УБРАН !!!!!!!
-// 
-	//Pars parser;//Объект класса
-	////while (true) {//Работает только когда есть клиентсокет,активное ожидание исключено
-	//	char Rxbuffer[1024];
-	//	while(!parser.isComplete()){//Пока строки не закончатся
-	//	int recBytes = recv(mySocket->get(), Rxbuffer, sizeof(Rxbuffer) - 1, 0);//-1 под нуль терминатор,0 т.к. 0 флагов
-	//	if (recBytes > 0) {
-	//		Rxbuffer[recBytes] = '\0';//огранчение строки
-	//		std::cout << "Получены байты " << Rxbuffer<< std::endl;
-	//	//Здесь нужно передать прилетевшие данные в сам парсер
-	//		parser.parse(Rxbuffer, recBytes);
-	//	}
-	//	else if (recBytes == 0) {//Если ПРИНЯТО 0 байтов-клиент отключился
-	//		std::cout << "Клиент отключился " << std::endl;
-	//		return;
-	//	}
-	//	else {
-	//		std::cerr << WSAGetLastError() << std::endl;
-	//		return;
-	//	}
-	//}
-	//	std::string html="<h1>Answer from Server</h1>";
-	//	std::string response =
-	//		"HTTP/1.1 200 OK\r\n"
-	//		"Connect-Type: text/html;charset=utf-8\r\n"
-	//		"Connect-Lenght:" + std::to_string(html.size()) + "\r\n"
-	//		"Connection:close\r\n"
-	//		"\r\n"
-	//		+ html;
-	//	send(mySocket->get(), response.c_str(), response.size(), 0);//Тут отправялется ответ от сервера к клиенту (html страница отправялется)
-	//	std::cout << "The request has been parsed" << std::endl;
-	//	std::cout<<"Method " << parser.method << std::endl;
-	//	std::cout<<"Path " << parser.path << std::endl;
-	//	std::cout<<"Version " << parser.version << std::endl;
-//}
 ChatServer::~ChatServer() {
 	std::cout << "[WINSOCK] Сетевая библиотека удалена " << std::endl;
 }

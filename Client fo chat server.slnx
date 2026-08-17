@@ -1,7 +1,0 @@
-<Solution>
-  <Configurations>
-    <Platform Name="x64" />
-    <Platform Name="x86" />
-  </Configurations>
-  <Project Path="Client fo chat server/Client fo chat server.vcxproj" Id="70579999-2f43-4619-bf43-80700954f89c" />
-</Solution>
