@@ -14,6 +14,9 @@ void Pars::parse(const char* buffer, size_t size) {
 				else if (command == "CHANGE_NICK") {
 					current_stat = Status::CHANGE_NICK;
 				}
+				else if (command == "SIGNIN" || command=="REGISTRATION") {
+					current_stat = Status::AUTHORIZATION;
+				}
 			}
 			else if (c == '\n' || c == '\r') {
 				message = command;
@@ -40,6 +43,31 @@ void Pars::parse(const char* buffer, size_t size) {
 			break;
 		case Status::COMPLETE:
 			return;
+		case Status::AUTHORIZATION:
+			if(c=='|') {
+				current_stat = Status::AUTH_PASS;
+				//	this->pass.push_back(c);
+				break;
+}else if (c == '\n') {
+				current_stat = Status::COMPLETE;
+				break;
+			}
+else if (c != '\r') {
+				this->log.push_back(c);
+			}
+			break;
+		case Status::AUTH_PASS:
+			if (c != '\r' &&c != '\n') {
+				this->pass.push_back(c);
+			}
+			else if (c == '\r') {
+
+			}
+			else if (c == '\n') {
+				current_stat = Status::COMPLETE;
+				
+			}
+			break;
 		}
 	}
 	 if (current_stat == Status::COMMAND && !command.empty()) {//Чтобы можно было писать сообщения без MSG|	

@@ -7,6 +7,9 @@ CHANGE_NICK,
 QUIT,
 COMMAND,
 COMPLETE,
+AUTHORIZATION,
+AUTH_LOG,
+AUTH_PASS
 };
 class Pars {
 private:
@@ -17,6 +20,8 @@ public:
 	Pars() :current_stat(Status::COMMAND){}//По дефолту парсинг начинается с метода
 	std::string message;
 	std::string command;
+	std::string log;
+	std::string pass;
 	//std::map<std::string, std::string>headers;
 	void parse(const char* buffer, size_t size);//Принимает массив символов
 	bool isComplete() const	{//Проверка на завершение парсинга

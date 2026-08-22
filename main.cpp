@@ -1,14 +1,20 @@
 #include"ChatServer.h"
 #include <iostream>
-
+#include<pqxx/pqxx>
 int main() {
 //setlocale(LC_ALL, "Russian");
 	SetConsoleCP(65001);
 	SetConsoleOutputCP(65001);
 	int port;
+	pqxx::connection connect("dbname=Chat_Server_DataBase user=postgres password=1234 host=localhost port=5432");
+	DataBase myDB("dbname=Chat_Server_DataBase user=postgres password=1234 host=localhost port=5432");
+	std::string table = "CREATE TABLE IF NOT EXISTS users(log VARCHAR(64),pass BYTEA)";
+	pqxx::work trans(connect);
+	trans.exec(table);
+	trans.commit();
 	std::cout << "Enter your port" << std::endl;
 	std::cin >> port;
-	ChatServer myServer(port);
+	ChatServer myServer(port,myDB);
 	if (!myServer.init()) {//Если возниклас ошибка с инициализицей
 		std::cerr << "Ошибка инициализации,не удалось запустить сервер" << std::endl;
 			system("Pause");

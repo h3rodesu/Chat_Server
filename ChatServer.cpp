@@ -1,7 +1,8 @@
 #include "ChatServer.h"
 #include "HttpRequest.h"
+
 #include<memory>	
-ChatServer::ChatServer(int s): myport(s),mysocket(INVALID_SOCKET),pool(4){}//4 потока
+ChatServer::ChatServer(int s, DataBase& d) :mysocket(INVALID_SOCKET), myport(s), pool(4), db(d) {}//4 потока
 bool ChatServer::init() {
 	WSADATA wsa;//Тут адрес 
 	int result = WSAStartup(MAKEWORD(2, 2), &wsa);//Инициализация из сети
@@ -81,39 +82,102 @@ void ChatServer::MessageBroadCast(const std::string& message, SOCKET sender) {
 
 void ChatServer::handlClient(std::shared_ptr<SafeSocket>mySocket) {//Фоновый поток для чтения через метод recv
 	char rxBuffer[1024];
-	std::string Welcome = "Welcome!\n Enter your nickname: ";
+	Pars parser;
+	std::string Welcome = "Welcome!\n Enter your nickname and password: ";
 	int flag = 1;
 	setsockopt(mySocket->get(), IPPROTO_TCP, TCP_NODELAY, (const char*)&flag, sizeof(flag));//изза малого объёма строки без флага TCP_NODELAY она не отправлялась первому клиенту
 	send(mySocket->get(), Welcome.c_str(), (int)Welcome.size(), 0);
 
-	int recBytes = recv(mySocket->get(), rxBuffer, sizeof(rxBuffer) - 1, 0);//Тут инт т.к. здесь число прилетевших байт
-	if (recBytes <= 0) {
-		{
-			std::unique_lock<std::mutex>myLock(this->mtx);
-			Map.erase(mySocket->get());//Метод get() был написан спциально для того чтобы моно было вызывать методы сокета для указателей
-			//closesocket(mySocket->get());//ЗДЕСЬ ЭТО НЕ НУЖНО,ЕСТЬ ДЕСТРУКТОР
-			
-		}
-		std::cerr << "Nickname trouble" << std::endl;
-		return;//Выход если клиент отключился или байты не дошли
-	}
-	rxBuffer[recBytes] = '\0';	
-	std::string nick(rxBuffer);//Перевели буфер в обычную строку
-	if (!nick.empty() && nick.back() == '\n' || nick.back() == '\r') {
-		nick.pop_back();
-	}
-	if (nick.empty()) {
-		nick = "Default User" + std::to_string(mySocket->get());//Чтобы был дефолт юзер и номер его сокета например Defaut Socket 345 
-	}
-	else {
-		std::string added = "Welcome,dear " + nick + ", You can start chatting right now!";
-		send(mySocket->get(), added.c_str(), (int)added.size(), 0);
-	}
-	{
-		std::lock_guard<std::mutex>myLock(this->mtx);
-		Map[mySocket->get()] = nick;
-	}
+	//int recBytes = recv(mySocket->get(), rxBuffer, sizeof(rxBuffer) - 1, 0);//Тут инт т.к. здесь число прилетевших байт
+	//if (recBytes <= 0) {
+	//	{
+	//		std::unique_lock<std::mutex>myLock(this->mtx);
+	//		Map.erase(mySocket->get());//Метод get() был написан спциально для того чтобы моно было вызывать методы сокета для указателей
+	//		//closesocket(mySocket->get());//ЗДЕСЬ ЭТО НЕ НУЖНО,ЕСТЬ ДЕСТРУКТОР
+	//		
+	//	}
+	//	std::cerr << "Nickname trouble" << std::endl;
+	//	return;//Выход если клиент отключился или байты не дошли
+	//}
+	 
+	 
+	 
 	
+	//parser.parse(rxBuffer, size_t(recBytes));
+	////rxBuffer[recBytes] = '\0';	
+	//std::string nick(rxBuffer);//Перевели буфер в обычную строку
+	////std::string nick()
+	//if (!nick.empty() && nick.back() == '\n' || nick.back() == '\r') {
+	//	nick.pop_back();
+	//}
+	//if (nick.empty()) {
+	//	nick = "Default User" + std::to_string(mySocket->get());//Чтобы был дефолт юзер и номер его сокета например Defaut Socket 345 
+	//}
+	//else {
+	//	std::string added = "Welcome,dear " + nick + ", You can start chatting right now!";
+	//	send(mySocket->get(), added.c_str(), (int)added.size(), 0);
+	//}
+	//{
+	//	std::lock_guard<std::mutex>myLock(this->mtx);
+	//	Map[mySocket->get()] = nick;
+	//}
+	//
+	std::string nick;
+	try {
+		while (true) {
+			int recBytes = recv(mySocket->get(), rxBuffer, sizeof(rxBuffer) - 1, 0);
+			if (recBytes <= 0) {
+				{
+					std::lock_guard<std::mutex>myLock(this->mtx);
+					this->Map.erase(mySocket->get());//удаление  пользователя из мапы
+				}
+				std::cerr << "Nickname trouble" << std::endl;
+				return;
+			}
+			parser.parse(rxBuffer, size_t(recBytes));
+			if (parser.isComplete()) {
+				if (parser.command == "SIGNIN") {
+					if (this->db.signin(parser.log, parser.pass)) {
+						{
+							std::lock_guard<std::mutex>myLock(this->mtx);
+							this->Map[mySocket->get()] = parser.log;
+						
+						}
+						std::string nicelog = "Auth_OK|Successful authorization.";
+						send(mySocket->get(), nicelog.c_str(), (int)nicelog.size(), 0);
+						nick = parser.log;
+						break;
+					}
+					else {
+						std::string errorlog = "Incorrect login or password,try again\n";
+						send(mySocket->get(), errorlog.c_str(), (int)errorlog.size(), 0);
+						parser.clean();//очистка перед повторным использованием
+					}
+				}
+				else if (parser.command == "REGISTRATION") {
+
+					if (this->db.registration(parser.log, parser.pass)) {
+						{
+							std::lock_guard<std::mutex>myLock(this->mtx);
+							this->Map[mySocket->get()] = parser.log;
+						}
+						std::string nicelog = "Register_OK|Successful registration.";
+						send(mySocket->get(), nicelog.c_str(), (int)nicelog.size(), 0);
+						nick = parser.log;
+						std::string succreg ="Succesfull registration!";
+						send(mySocket->get(), succreg.c_str(), (int)succreg.size(), 0);
+						break;
+					}
+					std::string errorreg = "This login is used,try to use another login.";
+					send(mySocket->get(), errorreg.c_str(), (int)errorreg.size(), 0);
+					parser.clean();
+				}
+			}
+		}
+	}
+	catch (const std::exception& e) {
+		std::cerr << "Краш бд " << e.what() << std::endl;
+	}
 	std::string SysMsg = "System: Greet User " + nick + "  ,now he is in the chat! ";
 	this->MessageBroadCast(SysMsg, mySocket->get());
 	this->processClientMsg(mySocket, nick);
@@ -125,7 +189,7 @@ void ChatServer::processClientMsg(std::shared_ptr<SafeSocket>sock, std::string n
 	int rec=recv(sock->get(), buf, sizeof(buf) - 1, 0);
 	if (rec <=0) {
 		std::cerr<<"WARNING!" << WSAGetLastError() << std::endl;
-		std::cout << "User" << nick << "left" << std::endl;
+		std::cout << "User " << nick << " left" << std::endl;
 		std::unique_lock<std::mutex>myLock(this->mtx);
 		this->Map.erase(sock->get());//Удаление сокета из мапы чтобы вышедшему пользователю не отправялиоись сообщения
 		break;//Из бесконечного цикла
@@ -156,6 +220,10 @@ void ChatServer::processClientMsg(std::shared_ptr<SafeSocket>sock, std::string n
 			{
 				std::unique_lock<std::mutex>myLock(this->mtx);
 				this->Map[sock->get()] = newNick;//так и так изменения нужно занести в мапу
+			}
+			{
+				std::unique_lock<std::mutex>bdosnova(this->mtx); 
+				this->db.changelog(oldNick, newNick);
 			}
 			nick = newNick;
 			std::string nickmsg = "System: User " + oldNick + " change nickName to " + newNick + "\n";
